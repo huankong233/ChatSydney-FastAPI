@@ -1,2 +1,5 @@
-aiohttp
-EdgeGPT==0.4.4
+websockets
+fastapi
+uvicorn
+asyncio
+SydneyGPT
