@@ -1,9 +1,10 @@
 FROM python:3.11
 
-WORKDIR ./ChatSydney
+WORKDIR /app
+
+ADD requirements.txt requirements.txt
+RUN pip install -r requirements.txt --upgrade
 
 ADD . .
 
-RUN pip install -r requirements.txt --upgrade
-
-CMD ["python", "./main.py"]
+CMD ["python", "main.py"]

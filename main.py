@@ -1,9 +1,10 @@
 import os
 import json
+import argparse
+import uvicorn
 from SydneyGPT.SydneyGPT import Chatbot
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse
-import argparse
+
 
 app = FastAPI()
 
@@ -27,7 +28,6 @@ async def websocket_endpoint(websocket: WebSocket):
         while True:
             try:
                 message = await websocket.receive_text()
-                print(message)
                 request = json.loads(message)
                 user_message = request['message']
                 context = request['context']
@@ -42,13 +42,15 @@ async def websocket_endpoint(websocket: WebSocket):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--host", help="host for the server", default="localhost")
+        "--host", help='host for the server like "0.0.0.0"', default="0.0.0.0")
     parser.add_argument(
-        "--port", help="port for the server", default=65432)
+        "--port", help='port for the server like "65432"', default=65432)
     parser.add_argument(
-        "--proxy", help='proxy address like "http://localhost:7890"', default="")
+        "--proxy", help='proxy for the server like "http://localhost:7890"', default="")
     args = parser.parse_args()
-    print(f"Proxy used: {args.proxy}")
+
+    if args.proxy != '':
+        print(f"Proxy used: {args.proxy}")
 
     if os.path.isfile("cookies.json"):
         with open("cookies.json", 'r') as f:
@@ -56,7 +58,6 @@ if __name__ == '__main__':
         print("Loaded cookies.json")
     else:
         loaded_cookies = []
-        print("cookies.json not found")
+        raise Exception("cookies.json not found")
 
-    import uvicorn
     uvicorn.run(app, host=args.host, port=int(args.port))
