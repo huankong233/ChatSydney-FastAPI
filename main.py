@@ -9,11 +9,16 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 app = FastAPI()
 
 
-async def process_message(user_message, context):
+def checkLocale(locale):
+    localeList = ['en-US', 'zh-CN', 'en-IE', 'en-GB']
+    return locale in localeList
+
+
+async def process_message(user_message, context, locale):
     chatbot = await Chatbot.create(cookies=loaded_cookies, proxy=args.proxy)
     try:
         async for _, response in chatbot.ask_stream(prompt=user_message, conversation_style="creative", raw=True,
-                                                    webpage_context=context, search_result=True):
+                                                    webpage_context=context, search_result=True, locale=locale):
             yield response
     except Exception as e:
         yield {"type": "error", "error": str(e)}
@@ -31,8 +36,12 @@ async def websocket_endpoint(websocket: WebSocket):
                 request = json.loads(message)
                 user_message = request['message']
                 context = request['context']
-                async for response in process_message(user_message, context):
-                    await websocket.send_json(response)
+                locale = request.get('locale', 'zh-CN')
+                if (checkLocale(locale)):
+                    async for response in process_message(user_message, context, locale):
+                        await websocket.send_json(response)
+                else:
+                    await websocket.send_json({"type": "error", "error": "wrong locale"})
             except WebSocketDisconnect:
                 break
     except Exception as e:
@@ -49,7 +58,9 @@ if __name__ == '__main__':
         "--proxy", help='proxy for the server like "http://localhost:7890"', default="")
     args = parser.parse_args()
 
-    if args.proxy != '':
+    if args.proxy == '':
+        print("Proxy not used")
+    else:
         print(f"Proxy used: {args.proxy}")
 
     if os.path.isfile("cookies.json"):
