@@ -11,7 +11,24 @@ app = FastAPI()
 
 def checkLocale(locale):
     localeList = ['en-US', 'zh-CN', 'en-IE', 'en-GB']
-    return locale in localeList
+    if locale in localeList:
+        return locale
+    else:
+        raise ValueError("wrong locale")
+
+
+def parseContext(context):
+    if isinstance(context, str):
+        return context
+    elif isinstance(context, list):
+        result = ""
+        for item in context:
+            tag = item["tag"]
+            text = item["text"]
+            result += tag + "\n" + text + "\n\n"
+        return result
+    else:
+        raise ValueError("wrong context")
 
 
 async def process_message(user_message, context, locale):
@@ -32,16 +49,12 @@ async def websocket_endpoint(websocket: WebSocket):
     try:
         while True:
             try:
-                message = await websocket.receive_text()
-                request = json.loads(message)
+                request = await websocket.receive_json()
                 user_message = request['message']
-                context = request['context']
-                locale = request.get('locale', 'zh-CN')
-                if (checkLocale(locale)):
-                    async for response in process_message(user_message, context, locale):
-                        await websocket.send_json(response)
-                else:
-                    await websocket.send_json({"type": "error", "error": "wrong locale"})
+                context = parseContext(request['context'])
+                locale = checkLocale(request.get('locale', 'zh-CN'))
+                async for response in process_message(user_message, context, locale):
+                    await websocket.send_json(response)
             except WebSocketDisconnect:
                 break
     except Exception as e:
@@ -56,6 +69,9 @@ if __name__ == '__main__':
         "--port", help='port for the server like "65432"', default=65432)
     parser.add_argument(
         "--proxy", help='proxy for the server like "http://localhost:7890"', default="")
+    parser.add_argument(
+        "--cookiePath", help="cookiePath", default="cookies.json"
+    )
     args = parser.parse_args()
 
     if args.proxy == '':
@@ -63,8 +79,8 @@ if __name__ == '__main__':
     else:
         print(f"Proxy used: {args.proxy}")
 
-    if os.path.isfile("cookies.json"):
-        with open("cookies.json", 'r') as f:
+    if os.path.isfile(args.cookiePath):
+        with open(args.cookiePath, 'r') as f:
             loaded_cookies = json.load(f)
         print("Loaded cookies.json")
     else:
