@@ -53,6 +53,9 @@ async def websocket_endpoint(websocket: WebSocket):
                 user_message = request['message']
                 context = parseContext(request['context'])
                 locale = checkLocale(request.get('locale', 'zh-CN'))
+                password = request.get('password', '')
+                if password is not args.password:
+                    raise ValueError("wrong password")
                 async for response in process_message(user_message, context, locale):
                     await websocket.send_json(response)
             except WebSocketDisconnect:
@@ -72,6 +75,9 @@ if __name__ == '__main__':
     parser.add_argument(
         "--cookiePath", help="cookiePath", default="cookies.json"
     )
+    parser.add_argument(
+        "--password", help="password", default=""
+    )
     args = parser.parse_args()
 
     if args.proxy == '':
@@ -86,5 +92,8 @@ if __name__ == '__main__':
     else:
         loaded_cookies = []
         raise Exception("cookies.json not found")
+
+    if args.password == '':
+        print("please notice !!! you did not set the password!!!")
 
     uvicorn.run(app, host=args.host, port=int(args.port))
