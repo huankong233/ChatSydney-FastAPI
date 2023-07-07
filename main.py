@@ -2,9 +2,64 @@ import os
 import json
 import argparse
 import uvicorn
+import logging
+import logging.config
 from SydneyGPT.SydneyGPT import Chatbot
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 
+log_config = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "default": {
+            "()": "uvicorn.logging.DefaultFormatter",
+            "fmt": "[%(asctime)s] %(levelprefix)s %(message)s",
+            "datefmt": "%Y-%m-%d %H:%M:%S",
+        },
+        "access": {
+            "()": "uvicorn.logging.AccessFormatter",
+            "fmt": "[%(asctime)s] %(levelprefix)s %(client_addr)s - \"%(request_line)s\" %(status_code)s %(response_time)s",
+            "datefmt": "%Y-%m-%d %H:%M:%S",
+        },
+    },
+    "handlers": {
+        "default": {
+            "formatter": "default",
+            "class": "logging.StreamHandler",
+            "stream": "ext://sys.stderr",
+        },
+        "access": {
+            "formatter": "access",
+            "class": "logging.StreamHandler",
+            "stream": "ext://sys.stdout",
+        },
+    },
+    "loggers": {
+        "main": {
+            "level": "DEBUG",
+            "handlers": ["default"],
+            "propagate": False,
+        },
+        "uvicorn": {
+            "level": "INFO",
+            "handlers": ["default"],
+            "propagate": False,
+        },
+        "uvicorn.error": {
+            "level": "INFO",
+            "handlers": ["default"],
+            "propagate": False,
+        },
+        "uvicorn.access": {
+            "level": "INFO",
+            "handlers": ["access"],
+            "propagate": False,
+        },
+    },
+}
+
+logging.config.dictConfig(log_config)
+logger = logging.getLogger("main")
 
 app = FastAPI()
 
@@ -14,7 +69,7 @@ def checkLocale(locale):
     if locale in localeList:
         return locale
     else:
-        raise ValueError("wrong locale")
+        raise Exception("wrong locale")
 
 
 def parseContext(context):
@@ -28,7 +83,7 @@ def parseContext(context):
             result += tag + "\n" + text + "\n\n"
         return result
     else:
-        raise ValueError("wrong context")
+        raise Exception("wrong context")
 
 
 async def process_message(user_message, context, locale):
@@ -54,8 +109,8 @@ async def websocket_endpoint(websocket: WebSocket):
                 context = parseContext(request['context'])
                 locale = checkLocale(request.get('locale', 'zh-CN'))
                 password = request.get('password', '')
-                if password is not args.password:
-                    raise ValueError("wrong password")
+                if password != args.password:
+                    raise Exception("wrong password")
                 async for response in process_message(user_message, context, locale):
                     await websocket.send_json(response)
             except WebSocketDisconnect:
@@ -78,22 +133,24 @@ if __name__ == '__main__':
     parser.add_argument(
         "--password", help="password", default=""
     )
-    args = parser.parse_args()
 
-    if args.proxy == '':
-        print("Proxy not used")
-    else:
-        print(f"Proxy used: {args.proxy}")
+    args = parser.parse_args()
 
     if os.path.isfile(args.cookiePath):
         with open(args.cookiePath, 'r') as f:
             loaded_cookies = json.load(f)
-        print("Loaded cookies.json")
+        logger.info('cookies is loaded')
     else:
         loaded_cookies = []
-        raise Exception("cookies.json not found")
+        raise Exception("cookies is not found")
+
+    if args.proxy == '':
+        logger.info('proxy is not used')
+    else:
+        logger.info(f'proxy is used with {args.proxy}')
 
     if args.password == '':
-        print("please notice !!! you did not set the password!!!")
+        logger.warning("please notice !!! you did not set the password!!!")
 
-    uvicorn.run(app, host=args.host, port=int(args.port))
+    uvicorn.run(app, host=args.host, port=int(
+        args.port), log_config=log_config)
