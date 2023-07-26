@@ -106,15 +106,17 @@ class ChatHub:
             ws_cookies = []
             for cookie in self.cookies:
                 ws_cookies.append(f"{cookie['name']}={cookie['value']}")
-            req_header.update({
-                'Cookie': ';'.join(ws_cookies),
-            })
-        
+            req_header.update(
+                {
+                    "Cookie": ";".join(ws_cookies),
+                }
+            )
+
         # Check if websocket is closed
         async with connect(
             wss_link or "wss://sydney.bing.com/sydney/ChatHub",
             extra_headers={
-                **req_header, 
+                **req_header,
                 "x-forwarded-for": f"13.{random.randint(104, 107)}.{random.randint(0, 255)}.{random.randint(0, 255)}",
             },
             max_size=None,
@@ -178,9 +180,15 @@ class ChatHub:
                                     resp_txt = f"{resp_txt}\n![image{i}]({image})"
                                 draw = True
                             if (
-                                response["arguments"][0]["messages"][0]["contentOrigin"]
-                                != "Apology"
-                            ) and not draw and not raw:
+                                (
+                                    response["arguments"][0]["messages"][0][
+                                        "contentOrigin"
+                                    ]
+                                    != "Apology"
+                                )
+                                and not draw
+                                and not raw
+                            ):
                                 resp_txt = result_text + response["arguments"][0][
                                     "messages"
                                 ][0]["adaptiveCards"][0]["body"][0].get("text", "")
@@ -210,6 +218,10 @@ class ChatHub:
                     elif response.get("type") == 2:
                         if response["item"]["result"].get("error"):
                             await self.close()
+                            if not response["item"]["firstNewMessageIndex"]:
+                                raise Exception(
+                                    "Please go to the official website to check if your account has reached the 24-hour conversation limit or needs to click verification. If so, please change your account cookie or click verification."
+                                )
                             raise Exception(
                                 f"{response['item']['result']['value']}: {response['item']['result']['message']}",
                             )
