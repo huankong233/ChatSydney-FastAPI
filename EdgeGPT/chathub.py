@@ -1,15 +1,16 @@
 import asyncio
 import json
 import os
+import random
 import ssl
 import sys
-import random
+import aiohttp
+import urllib.parse
 from time import time
 from typing import Generator
 from typing import List
 from typing import Union
 
-from websockets.client import connect, WebSocketClientProtocol
 import certifi
 import httpx
 from BingImageCreator import ImageGenAsync
@@ -38,8 +39,9 @@ class ChatHub:
         self.request: ChatHubRequest
         self.loop: bool
         self.task: asyncio.Task
+        self.sec_access_token: str | None = conversation.sec_access_token
         self.request = ChatHubRequest(
-            conversation_signature=conversation.struct["conversationSignature"],
+            conversation_signature=conversation.struct.get("conversationSignature"),
             client_id=conversation.struct["clientId"],
             conversation_id=conversation.struct["conversationId"],
             imgid=conversation.imgid,
@@ -61,6 +63,11 @@ class ChatHub:
             timeout=900,
             headers=HEADERS_INIT_CONVER,
         )
+        cookies = {}
+        if self.cookies is not None:
+            for cookie in self.cookies:
+                cookies[cookie["name"]] = cookie["value"]
+        self.aio_session = aiohttp.ClientSession(cookies=cookies)
 
     async def get_conversation(
         self,
@@ -100,28 +107,21 @@ class ChatHub:
     ) -> Generator[bool, Union[dict, str], None]:
         """ """
 
-        # add cookies
-        req_header = HEADERS
-        if self.cookies is not None:
-            ws_cookies = []
-            for cookie in self.cookies:
-                ws_cookies.append(f"{cookie['name']}={cookie['value']}")
-            req_header.update(
-                {
-                    "Cookie": ";".join(ws_cookies),
-                }
+        if self.sec_access_token:
+            wss_link = (
+                "wss://sydney.bing.com/sydney/ChatHub?sec_access_token="
+                + urllib.parse.quote_plus(self.sec_access_token)
             )
 
         # Check if websocket is closed
-        async with connect(
+        async with self.aio_session.ws_connect(
             wss_link or "wss://sydney.bing.com/sydney/ChatHub",
-            extra_headers={
-                **req_header,
+            ssl=ssl_context,
+            headers={
+                **HEADERS,
                 "x-forwarded-for": f"13.{random.randint(104, 107)}.{random.randint(0, 255)}.{random.randint(0, 255)}",
             },
-            max_size=None,
-            ssl=ssl_context,
-            ping_interval=None,
+            proxy=self.proxy,
         ) as wss:
             await self._initial_handshake(wss)
             # Construct a ChatHub request
@@ -133,17 +133,15 @@ class ChatHub:
                 locale=locale,
             )
             # Send request
-            await wss.send(append_identifier(self.request.struct))
+            await wss.send_str(append_identifier(self.request.struct))
             # print(json.dumps(self.request.struct), "\n\n")
             draw = False
             resp_txt = ""
             result_text = ""
             resp_txt_no_link = ""
             retry_count = 5
-            while True:
-                if wss.closed:
-                    break
-                msg = await wss.recv()
+            while not wss.closed:
+                msg = await wss.receive_str()
                 if not msg:
                     retry_count -= 1
                     if retry_count == 0:
@@ -155,7 +153,7 @@ class ChatHub:
                     continue
                 for obj in objects:
                     if int(time()) % 6 == 0:
-                        await wss.send(append_identifier({"type": 6}))
+                        await wss.send_str(append_identifier({"type": 6}))
                     if obj is None or not obj:
                         continue
                     response = json.loads(obj)
@@ -171,7 +169,7 @@ class ChatHub:
                                 == "GenerateContentQuery"
                             ):
                                 async with ImageGenAsync(
-                                    all_cookies=self.cookies
+                                    all_cookies=self.cookies,
                                 ) as image_generator:
                                     images = await image_generator.get_images(
                                         response["arguments"][0]["messages"][0]["text"],
@@ -218,20 +216,18 @@ class ChatHub:
                     elif response.get("type") == 2:
                         if response["item"]["result"].get("error"):
                             await self.close()
-                            if not response["item"]["firstNewMessageIndex"]:
-                                raise Exception(
-                                    "Please go to the official website to check if your account has reached the 24-hour conversation limit or needs to click verification. If so, please change your account cookie or click verification."
-                                )
                             raise Exception(
                                 f"{response['item']['result']['value']}: {response['item']['result']['message']}",
                             )
                         if draw:
-                            cache = response["item"]["messages"][1]["adaptiveCards"][0][
-                                "body"
-                            ][0]["text"]
-                            response["item"]["messages"][1]["adaptiveCards"][0]["body"][
-                                0
-                            ]["text"] = (cache + resp_txt)
+                            for message in response["item"]["messages"]:
+                                if "adaptiveCards" in message:
+                                    cache = message["adaptiveCards"][0]["body"][0][
+                                        "text"
+                                    ]
+                                    message["adaptiveCards"][0]["body"][0]["text"] = (
+                                        cache + resp_txt
+                                    )
                         if (
                             response["item"]["messages"][-1]["contentOrigin"]
                             == "Apology"
@@ -250,16 +246,16 @@ class ChatHub:
                         return
                     if response.get("type") != 2:
                         if response.get("type") == 6:
-                            await wss.send(append_identifier({"type": 6}))
+                            await wss.send_str(append_identifier({"type": 6}))
                         elif response.get("type") == 7:
-                            await wss.send(append_identifier({"type": 7}))
+                            await wss.send_str(append_identifier({"type": 7}))
                         elif raw:
                             yield False, response
 
-    async def _initial_handshake(self, wss: WebSocketClientProtocol) -> None:
-        await wss.send(append_identifier({"protocol": "json", "version": 1}))
-        await wss.recv()
-        await wss.send(append_identifier({"type": 6}))
+    async def _initial_handshake(self, wss) -> None:
+        await wss.send_str(append_identifier({"protocol": "json", "version": 1}))
+        await wss.receive_str()
+        await wss.send_str(append_identifier({"type": 6}))
 
     async def delete_conversation(
         self,
@@ -286,3 +282,4 @@ class ChatHub:
 
     async def close(self) -> None:
         await self.session.aclose()
+        await self.aio_session.close()

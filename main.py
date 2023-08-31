@@ -2,12 +2,10 @@ import os
 import json
 import argparse
 import uvicorn
-import logging
 import logging.config
-from SydneyGPT.SydneyGPT import Chatbot
+from EdgeGPT.EdgeGPT import Chatbot
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 import uuid
-import time
 
 log_config = {
     "version": 1,
@@ -94,7 +92,6 @@ async def process_message(user_message, context, locale, _U):
     else:
         cookies = loaded_cookies + [{"name": "_U", "value": str(uuid.uuid4())}]
         chatbot = await Chatbot.create(cookies=loaded_cookies, proxy=args.proxy)
-    for i in range(args.maxRetries + 1):
         try:
             async for _, response in chatbot.ask_stream(
                 prompt=user_message,
@@ -106,9 +103,7 @@ async def process_message(user_message, context, locale, _U):
             ):
                 yield response
         except Exception as e:
-            if i == args.maxRetries:
-                yield {"type": "error", "error": str(e)}
-            time.sleep(2)
+            yield {"type": "error", "error": str(e)}
         finally:
             await chatbot.close()
 
@@ -145,7 +140,6 @@ if __name__ == "__main__":
     parser.add_argument("--proxy", help="proxy for the server", default="")
     parser.add_argument("--cookiePath", help="cookiePath", default="cookies.json")
     parser.add_argument("--password", help="password", default="")
-    parser.add_argument("--maxRetries", help="maxRetries", default=5)
     args = parser.parse_args()
 
     if os.path.isfile(args.cookiePath):

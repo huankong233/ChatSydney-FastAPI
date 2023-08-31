@@ -17,6 +17,7 @@ class Conversation:
         async_mode: bool = False,
         cookies: Union[List[dict], None] = None,
     ) -> None:
+        self.sec_access_token: str | None = None
         if async_mode:
             return
         self.imgid: Union[dict, None] = None
@@ -116,7 +117,7 @@ class Conversation:
             print(f"Status code: {response.status_code}")
             print(response.text)
             print(response.url)
-            raise Exception("Authentication failed")
+            raise Exception("Authentication failed\n创建对话时认证失败,尝试更换cookie或者更换代理后再试。")
         try:
             self.struct = response.json()
             # print(response.text)
@@ -127,4 +128,6 @@ class Conversation:
             ) from exc
         if self.struct["result"]["value"] == "UnauthorizedRequest":
             raise NotAllowedToAccess(self.struct["result"]["message"])
+        if 'X-Sydney-Encryptedconversationsignature' in response.headers:
+            self.sec_access_token = response.headers['X-Sydney-Encryptedconversationsignature']
         return self
